@@ -1,5 +1,5 @@
 require "gmapsjs/version"
 
-module Gmapsjs
+module GmapsJS
   require 'gmapsjs/engine'
 end

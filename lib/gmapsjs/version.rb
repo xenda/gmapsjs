@@ -1,3 +1,3 @@
-module Gmapsjs
-  VERSION = "0.0.1"
+module GmapsJS
+  VERSION = "0.1.9"
 end
