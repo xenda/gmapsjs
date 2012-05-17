@@ -1,6 +1,7 @@
 # Gmapsjs
 
-TODO: Write a gem description
+gmaps.js allows you to use the potential of Google Maps in a simple way.
+No more extensive documentation or large amount of code.
 
 ## Installation
 
@@ -18,12 +19,4 @@ Or install it yourself as:
 
 ## Usage
 
-TODO: Write usage instructions here
-
-## Contributing
-
-1. Fork it
-2. Create your feature branch (`git checkout -b my-new-feature`)
-3. Commit your changes (`git commit -am 'Added some feature'`)
-4. Push to the branch (`git push origin my-new-feature`)
-5. Create new Pull Request
+Read the documentation and examples at: http://hpneo.github.com/gmaps/
