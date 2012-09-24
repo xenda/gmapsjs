@@ -1,5 +1,5 @@
 /*!
- * GMaps.js
+ * GMaps.js v0.2.13
  * http://hpneo.github.com/gmaps/
  *
  * Copyright 2012, Gustavo Leon
@@ -29,12 +29,13 @@ if(window.google && window.google.maps){
       if(typeof(options.div)=='string'){
         this.div = getElementById(options.div, options.context);
       }else{this.div = options.div;};
-      this.div.style.width = this.div.clientWidth || options.width;
-      this.div.style.height = this.div.clientHeight || options.height;
+      this.div.style.width = options.width || this.div.scrollWidth || this.div.offsetWidth;
+      this.div.style.height = options.height || this.div.scrollHeight || this.div.offsetHeight;
 
       this.controls = [];
       this.overlays = [];
-      this.layers = [];
+      this.layers = []; // array with kml and ft layers, can be as many
+      this.singleLayers = {}; // object with the other layers, only one per layer
       this.markers = [];
       this.polylines = [];
       this.routes = [];
@@ -76,8 +77,6 @@ if(window.google && window.google.maps){
           streetViewControl = options.streetViewControl || true,
           overviewMapControl = overviewMapControl || true;
 
-
-
       var map_base_options = {
         zoom: this.zoom,
         center: map_center,
@@ -109,7 +108,9 @@ if(window.google && window.google.maps){
                 option.title + '</a></li>';
             }
           }
+
           if(!getElementById('gmaps_context_menu')) return;
+          
           var context_menu_element = getElementById('gmaps_context_menu');
           context_menu_element.innerHTML = html;
 
@@ -206,6 +207,9 @@ if(window.google && window.google.maps){
       for (var ev = 0; ev < events_that_hide_context_menu.length; ev++) {
         (function(object, name) {
           google.maps.event.addListener(object, name, function(e){
+            if(e == undefined)
+              e = this;
+
             if (options[name])
               options[name].apply(this, [e]);
 
@@ -217,6 +221,9 @@ if(window.google && window.google.maps){
       for (var ev = 0; ev < events_that_doesnt_hide_context_menu.length; ev++) {
         (function(object, name) {
           google.maps.event.addListener(object, name, function(e){
+            if(e == undefined)
+              e = this;
+            
             if (options[name])
               options[name].apply(this, [e]);
           });
@@ -265,29 +272,35 @@ if(window.google && window.google.maps){
         }
       };
 
-      this.getCenter = function() {
-        return this.map.getCenter();
-      };
-
       this.getDiv = function() {
         return this.div;
       };
 
-      this.setZoom = function(value) {
-        this.map.setZoom(value);
-      };
-
-      this.getZoom = function() {
-        return this.map.getZoom();
-      };
-
       this.zoomIn = function(value) {
-        this.map.setZoom(this.map.getZoom() + value);
+        this.zoom = this.map.getZoom() + value;
+        this.map.setZoom(this.zoom);
       };
 
       this.zoomOut = function(value) {
-        this.map.setZoom(this.map.getZoom() - value);
+        this.zoom = this.map.getZoom() - value;
+        this.map.setZoom(this.zoom);
       };
+
+      var native_methods = [];
+
+      for(var method in this.map){
+        if(typeof(this.map[method]) == 'function' && !this[method]){
+          native_methods.push(method);
+        }
+      }
+
+      for(var i=0; i < native_methods.length; i++){
+        (function(gmaps, scope, method_name) {
+          gmaps[method_name] = function(){
+            return scope[method_name].apply(scope, arguments);
+          };
+        })(this, this.map, native_methods[i]);
+      }
 
       this.createControl = function(options) {
         var control = doc.createElement('div');
@@ -330,7 +343,7 @@ if(window.google && window.google.maps){
 
       // Markers
       this.createMarker = function(options) {
-        if ((options.lat && options.lng) || options.position) {
+        if ((options.hasOwnProperty('lat') && options.hasOwnProperty('lng')) || options.position) {
           var self = this;
           var details = options.details;
           var fences = options.fences;
@@ -367,7 +380,9 @@ if(window.google && window.google.maps){
             }
           }
 
-          var marker_events = ['drag', 'dragstart', 'mouseout', 'mouseover', 'mouseup', 'position_changed'];
+          var marker_events = ['animation_changed', 'clickable_changed', 'cursor_changed', 'draggable_changed', 'flat_changed', 'icon_changed', 'position_changed', 'shadow_changed', 'shape_changed', 'title_changed', 'visible_changed', 'zindex_changed'];
+
+          var marker_events_with_mouse = ['dblclick', 'drag', 'dragend', 'dragstart', 'mousedown', 'mouseout', 'mouseover', 'mouseup'];
 
           for (var ev = 0; ev < marker_events.length; ev++) {
             (function(object, name) {
@@ -376,6 +391,18 @@ if(window.google && window.google.maps){
                   options[name].apply(this, [this]);
               });
             })(marker, marker_events[ev]);
+          }
+
+          for (var ev = 0; ev < marker_events.length; ev++) {
+            (function(object, name) {
+              google.maps.event.addListener(object, name, function(me){
+                if(!me.pixel){
+                  me.pixel = this.map.getProjection().fromLatLngToPoint(me.latLng)
+                }
+                if (options[name])
+                  options[name].apply(this, [me]);
+              });
+            })(marker, marker_events_with_mouse[ev]);
           }
 
           google.maps.event.addListener(marker, 'click', function() {
@@ -393,9 +420,6 @@ if(window.google && window.google.maps){
 
           if (options.dragend || marker.fences) {
             google.maps.event.addListener(marker, 'dragend', function() {
-              if (options.dragend) {
-                options.dragend.apply(this, [this]);
-              }
               if (marker.fences) {
                 self.checkMarkerGeofence(marker, function(m, f) {
                   outside(m, f);
@@ -412,7 +436,7 @@ if(window.google && window.google.maps){
       };
 
       this.addMarker = function(options) {
-        if ((options.lat && options.lng) || options.position) {
+        if ((options.hasOwnProperty('lat') && options.hasOwnProperty('lng')) || options.position) {
           var marker = this.createMarker(options);
           marker.setMap(this.map);
           this.markers.push(marker);
@@ -439,17 +463,33 @@ if(window.google && window.google.maps){
         }
       };
 
-      this.removeMarkers = function() {
-        for (var i=0, marker; marker=this.markers[i]; i++){
-          marker.setMap(null);
+      this.removeMarkers = function(collection) {
+        var collection = (collection || this.markers);
+          
+        for(var i=0;i < this.markers.length; i++){
+          if(this.markers[i] === collection[i])
+            this.markers[i].setMap(null);
         }
-        this.markers = [];
+
+        var new_markers = [];
+
+        for(var i=0;i < this.markers.length; i++){
+          if(this.markers[i].getMap() != null)
+            new_markers.push(this.markers[i]);
+        }
+
+        this.markers = new_markers;
       };
 
       // Overlays
       this.drawOverlay = function(options) {
         var overlay = new google.maps.OverlayView();
         overlay.setMap(self.map);
+
+        var auto_show = true;
+
+        if(options.auto_show != null)
+          auto_show = options.auto_show;
 
         overlay.onAdd = function() {
           var div = doc.createElement('div');
@@ -459,7 +499,7 @@ if(window.google && window.google.maps){
           div.style.zIndex = 100;
           div.innerHTML = options.content;
 
-          self.overlay_div = div;
+          overlay.div = div;
 
           var panes = this.getPanes();
           if (!options.layer) {
@@ -467,6 +507,24 @@ if(window.google && window.google.maps){
           }
           var overlayLayer = panes[options.layer];
           overlayLayer.appendChild(div);
+
+          var stop_overlay_events = ['contextmenu', 'DOMMouseScroll', 'dblclick', 'mousedown'];
+
+          for (var ev = 0; ev < stop_overlay_events.length; ev++) {
+            (function(object, name) {
+              google.maps.event.addDomListener(object, name, function(e){
+                if(navigator.userAgent.toLowerCase().indexOf('msie') != -1 && document.all) {
+                  e.cancelBubble = true;
+                  e.returnValue = false;
+                }
+                else {
+                  e.stopPropagation();
+                }
+              });
+            })(div, stop_overlay_events[ev]);
+          }
+
+          google.maps.event.trigger(this, 'ready');
         };
 
         overlay.draw = function() {
@@ -476,7 +534,7 @@ if(window.google && window.google.maps){
           options.horizontalOffset = options.horizontalOffset || 0;
           options.verticalOffset = options.verticalOffset || 0;
 
-          var div = self.overlay_div;
+          var div = overlay.div;
           var content = div.children[0];
 
           var content_height = content.clientHeight;
@@ -507,12 +565,26 @@ if(window.google && window.google.maps){
               div.style.left = (pixel.x + options.horizontalOffset) + 'px';
               break;
           }
+
+          div.style.display = auto_show ? 'block' : 'none';
+
+          if(!auto_show){
+            options.show.apply(this, [div]);
+          }
         };
 
         overlay.onRemove = function() {
-          self.overlay_div.parentNode.removeChild(self.overlay_div);
-          self.overlay_div = null;
+          var div = overlay.div;
+
+          if(options.remove){
+            options.remove.apply(this, [div]);
+          }
+          else{
+            overlay.div.parentNode.removeChild(overlay.div);
+            overlay.div = null;
+          }
         };
+
         self.overlays.push(overlay);
         return overlay;
       };
@@ -526,6 +598,13 @@ if(window.google && window.google.maps){
           item.setMap(null);
         }
         self.overlays = [];
+      };
+
+      this.removePolylines = function() {
+        for (var i=0, item; item=self.polylines[i]; i++){
+          item.setMap(null);
+        }
+        self.polylines = [];
       };
 
       this.drawPolyline = function(options) {
@@ -548,7 +627,8 @@ if(window.google && window.google.maps){
           path: path,
           strokeColor: options.strokeColor,
           strokeOpacity: options.strokeOpacity,
-          strokeWeight: options.strokeWeight
+          strokeWeight: options.strokeWeight,
+          geodesic: options.geodesic
         });
 
         var polyline_events = ['click', 'dblclick', 'mousedown', 'mousemove', 'mouseout', 'mouseover', 'mouseup', 'rightclick'];
@@ -588,6 +668,8 @@ if(window.google && window.google.maps){
           })(polygon, polygon_events[ev]);
         }
 
+        this.polygons.push(polygon);
+
         return polygon;
       };
       
@@ -615,6 +697,8 @@ if(window.google && window.google.maps){
             });
           })(polygon, polygon_events[ev]);
         }
+
+        this.polygons.push(polygon);
 
         return polygon;
       };
@@ -646,6 +730,15 @@ if(window.google && window.google.maps){
         this.polygons.push(polygon);
 
         return polygon;
+      };
+
+      this.removePolygon = this.removeOverlay;
+
+      this.removePolygons = function() {
+        for (var i=0, item; item=self.polygons[i]; i++){
+          item.setMap(null);
+        }
+        self.polygons = [];
       };
 
       this.getFromFusionTables = function(options) {
@@ -715,6 +808,9 @@ if(window.google && window.google.maps){
         case 'bicycling':
           travelMode = google.maps.TravelMode.BICYCLING;
           break;
+        case 'transit':
+          travelMode = google.maps.TravelMode.TRANSIT;
+          break;
         case 'driving':
           travelMode = google.maps.TravelMode.DRIVING;
           break;
@@ -764,6 +860,10 @@ if(window.google && window.google.maps){
         });
       };
 
+      this.removeRoutes = function() {
+        this.routes = [];
+      };
+
       this.getElevations = function(options) {
         options = extend_object({
           locations: [],
@@ -806,14 +906,6 @@ if(window.google && window.google.maps){
         }
       };
 
-      this.removePolylines = function(){
-        var index;
-        for(index in this.polylines){
-          this.polylines[index].setMap(null);
-        }
-        this.polylines = [];
-      }
-
       // Alias for the method "drawRoute"
       this.cleanRoute = this.removePolylines;
 
@@ -848,15 +940,26 @@ if(window.google && window.google.maps){
             travelMode: options.travelMode,
             waypoints : options.waypoints,
             callback: function(e) {
+              //start callback
+              if (e.length > 0 && options.start) {
+                options.start(e[e.length - 1]);
+              }
+
+              //step callback
               if (e.length > 0 && options.step) {
                 var route = e[e.length - 1];
                 if (route.legs.length > 0) {
                   var steps = route.legs[0].steps;
                   for (var i=0, step; step=steps[i]; i++) {
                     step.step_number = i;
-                    options.step(step);
+                    options.step(step, (route.legs[0].steps.length - 1));
                   }
                 }
+              }
+
+              //end callback
+              if (e.length > 0 && options.end) {
+                 options.end(e[e.length - 1]);
               }
             }
           });
@@ -878,7 +981,14 @@ if(window.google && window.google.maps){
             origin: options.origin,
             destination: options.destination,
             travelMode: options.travelMode,
+            waypoints : options.waypoints,
             callback: function(e) {
+              //start callback
+              if (e.length > 0 && options.start) {
+                options.start(e[e.length - 1]);
+              }
+
+              //step callback
               if (e.length > 0 && options.step) {
                 var route = e[e.length - 1];
                 if (route.legs.length > 0) {
@@ -891,9 +1001,14 @@ if(window.google && window.google.maps){
                       strokeOpacity: options.strokeOpacity,
                       strokeWeight: options.strokeWeight
                     });
-                    options.step(step);
+                    options.step(step, (route.legs[0].steps.length - 1));
                   }
                 }
+              }
+
+              //end callback
+              if (e.length > 0 && options.end) {
+                 options.end(e[e.length - 1]);
               }
             }
           });
@@ -930,6 +1045,124 @@ if(window.google && window.google.maps){
           }
         }
       };
+
+      //add layers to the maps
+      this.addLayer = function(layerName, options) {
+        //var default_layers = ['weather', 'clouds', 'traffic', 'transit', 'bicycling', 'panoramio', 'places'];
+        options = options || {};
+        var layer;
+          
+        switch(layerName) {
+          case 'weather': this.singleLayers.weather = layer = new google.maps.weather.WeatherLayer(); 
+            break;
+          case 'clouds': this.singleLayers.clouds = layer = new google.maps.weather.CloudLayer(); 
+            break;
+          case 'traffic': this.singleLayers.traffic = layer = new google.maps.TrafficLayer(); 
+            break;
+          case 'transit': this.singleLayers.transit = layer = new google.maps.TransitLayer(); 
+            break;
+          case 'bicycling': this.singleLayers.bicycling = layer = new google.maps.BicyclingLayer(); 
+            break;
+          case 'panoramio': 
+              this.singleLayers.panoramio = layer = new google.maps.panoramio.PanoramioLayer();
+              layer.setTag(options.filter);
+              delete options.filter;
+
+              //click event
+              if(options.click) {
+                google.maps.event.addListener(layer, 'click', function(event) {
+                  options.click(event);
+                  delete options.click;
+                });
+              }
+            break;
+            case 'places': 
+              this.singleLayers.places = layer = new google.maps.places.PlacesService(this.map);
+
+              //search and  nearbySearch callback, Both are the same
+              if(options.search || options.nearbySearch) {
+                var placeSearchRequest  = {
+                  bounds : options.bounds || null,
+                  keyword : options.keyword || null,
+                  location : options.location || null,
+                  name : options.name || null,
+                  radius : options.radius || null,
+                  rankBy : options.rankBy || null,
+                  types : options.types || null
+                };
+
+                if(options.search) {
+                  layer.search(placeSearchRequest, options.search);
+                }
+
+                if(options.nearbySearch) {
+                  layer.nearbySearch(placeSearchRequest, options.nearbySearch);
+                }
+              }
+
+              //textSearch callback
+              if(options.textSearch) {
+                var textSearchRequest  = {
+                  bounds : options.bounds || null,
+                  location : options.location || null,
+                  query : options.query || null,
+                  radius : options.radius || null
+                };
+                
+                layer.textSearch(textSearchRequest, options.textSearch);
+              }
+            break;
+        }
+
+        if(layer !== undefined) {
+          if(typeof layer.setOptions == 'function') {
+            layer.setOptions(options);
+          }
+          if(typeof layer.setMap == 'function') {
+            layer.setMap(this.map);
+          }
+
+          return layer;
+        }
+      };
+
+      //remove layers
+      this.removeLayer = function(layerName) {
+        if(this.singleLayers[layerName] !== undefined) {
+           this.singleLayers[layerName].setMap(null);
+           delete this.singleLayers[layerName];
+        }
+      };
+
+      this.toImage = function(options) {
+        var options = options || {};
+        var static_map_options = {};
+        static_map_options['size'] = options['size'] || [this.div.clientWidth, this.div.clientHeight];
+        static_map_options['lat'] = this.getCenter().lat();
+        static_map_options['lng'] = this.getCenter().lng();
+
+        if(this.markers.length > 0) {
+          static_map_options['markers'] = [];
+          for(var i=0; i < this.markers.length; i++) {
+            static_map_options['markers'].push({
+              lat: this.markers[i].getPosition().lat(),
+              lng: this.markers[i].getPosition().lng()
+            });
+          }
+        }
+
+        if(this.polylines.length > 0) {
+          var polyline = this.polylines[0];
+          static_map_options['polyline'] = {};
+          static_map_options['polyline']['path'] = google.maps.geometry.encoding.encodePath(polyline.getPath());
+          static_map_options['polyline']['strokeColor'] = polyline.strokeColor
+          static_map_options['polyline']['strokeOpacity'] = polyline.strokeOpacity
+          static_map_options['polyline']['strokeWeight'] = polyline.strokeWeight
+        }
+        
+        return GMaps.staticMapURL(static_map_options);
+      };
+
     };
 
     GMaps.Route = function(options) {
@@ -998,7 +1231,7 @@ if(window.google && window.google.maps){
     GMaps.geocode = function(options) {
       this.geocoder = new google.maps.Geocoder();
       var callback = options.callback;
-      if (options.lat && options.lng) {
+      if (options.hasOwnProperty('lat') && options.hasOwnProperty('lng')) {
         options.latLng = new google.maps.LatLng(options.lat, options.lng);
       }
 
@@ -1246,7 +1479,7 @@ if(window.google && window.google.maps){
 
   var arrayToLatLng = function(coords) {
     return new google.maps.LatLng(coords[0], coords[1]);
-  }
+  };
 
   var extend_object = function(obj, new_obj) {
     if(obj === new_obj) return obj;
@@ -1275,3 +1508,12 @@ if(window.google && window.google.maps){
   }
 
 }
+
+/*Extension: Styled map*/
+GMaps.prototype.addStyle = function(options){       
+  var styledMapType = new google.maps.StyledMapType(options.styles, options.styledMapName);
+  this.map.mapTypes.set(options.mapTypeId, styledMapType);
+};
+GMaps.prototype.setStyle = function(mapTypeId){     
+  this.map.setMapTypeId(mapTypeId);
+};
