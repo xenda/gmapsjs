@@ -4,7 +4,7 @@ require File.expand_path('../lib/gmapsjs/version', __FILE__)
 
 Gem::Specification.new do |gem|
   gem.authors       = ["Alvaro Pereyra", "Gustavo Leon"]
-  gem.email         = ["alvaro@xendacentral.com", "hpneo@gmail.com"]
+  gem.email         = ["alvaro@xendacentral.com", "hpneo@hotmail.com"]
   gem.description   = "gmaps.js allows you to use the potential of Google Maps in a simple way.
 No more extensive documentation or large amount of code."
   gem.summary       = ""
