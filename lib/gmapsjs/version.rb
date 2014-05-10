@@ -1,3 +1,3 @@
 module GmapsJS
-  VERSION = "0.2.30.1"
+  VERSION = "0.4.12"
 end
